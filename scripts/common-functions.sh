@@ -477,6 +477,7 @@ process_conditionals() {
     local use_claude_code_subagents=$2
     local standards_as_claude_code_skills=$3
     local compiled_single_command=${4:-"false"}  # Default to false if not provided
+    local standards_as_copilot_instructions=${5:-"false"}  # Default to false if not provided
 
     local result=""
     local nesting_level=0
@@ -496,6 +497,9 @@ process_conditionals() {
                     ;;
                 "standards_as_claude_code_skills")
                     [[ "$standards_as_claude_code_skills" == "true" ]] && condition_met=true
+                    ;;
+                "standards_as_copilot_instructions")
+                    [[ "$standards_as_copilot_instructions" == "true" ]] && condition_met=true
                     ;;
                 "compiled_single_command")
                     [[ "$compiled_single_command" == "true" ]] && condition_met=true
@@ -531,6 +535,9 @@ process_conditionals() {
                     ;;
                 "standards_as_claude_code_skills")
                     [[ "$standards_as_claude_code_skills" != "true" ]] && condition_met=true
+                    ;;
+                "standards_as_copilot_instructions")
+                    [[ "$standards_as_copilot_instructions" != "true" ]] && condition_met=true
                     ;;
                 "compiled_single_command")
                     [[ "$compiled_single_command" != "true" ]] && condition_met=true
@@ -770,7 +777,7 @@ process_phase_tags() {
                 # Process the file content through the compilation pipeline
                 # (conditionals, workflows, standards) before embedding
                 # Set compiled_single_command=true to exclude content wrapped in {{UNLESS compiled_single_command}}
-                file_content=$(process_conditionals "$file_content" "${EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS:-true}" "${EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS:-true}" "true")
+                file_content=$(process_conditionals "$file_content" "${EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS:-true}" "${EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS:-true}" "true" "${EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS:-false}")
                 file_content=$(process_workflows "$file_content" "$base_dir" "$profile" "")
 
                 # Process standards replacements in the embedded file
@@ -943,9 +950,9 @@ compile_agent() {
     fi
 
     # Process conditional compilation tags
-    # Uses global variables: EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS, EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS
+    # Uses global variables: EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS, EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS, EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS
     # compiled_single_command=false for main file (will be true for embedded PHASE files)
-    content=$(process_conditionals "$content" "${EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS:-true}" "${EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS:-true}" "false")
+    content=$(process_conditionals "$content" "${EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS:-true}" "${EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS:-true}" "${EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS:-false}" "false")
 
     # Process workflow replacements
     content=$(process_workflows "$content" "$base_dir" "$profile" "")
@@ -1026,6 +1033,49 @@ compile_command() {
     local phase_mode=${5:-""}  # Optional: "embed" to embed PHASE content, or empty for no processing
 
     compile_agent "$source_file" "$dest_file" "$base_dir" "$profile" "" "$phase_mode"
+}
+
+# Compile instruction file from standards for GitHub Copilot
+compile_instruction() {
+    local source_file=$1
+    local dest_file=$2
+    local base_dir=$3
+    local profile=$4
+
+    # Read source standards file
+    if [[ ! -f "$source_file" ]]; then
+        print_error "Standards file not found: $source_file"
+        return 1
+    fi
+
+    local content=$(cat "$source_file")
+    
+    # Extract filename and create human-readable title
+    local filename=$(basename "$source_file" .md)
+    local dir_path=$(dirname "$source_file" | sed 's|^.*/standards/||')
+    
+    # Create title based on path and filename
+    local title
+    if [[ "$dir_path" == "." ]] || [[ "$dir_path" == "standards" ]]; then
+        title=$(convert_filename_to_human_name_capitalized "$filename.md")
+    else
+        title=$(convert_filename_to_human_name_capitalized "$dir_path/$filename.md")
+    fi
+    
+    # Format content as GitHub Copilot instruction
+    # Reference: .github/copilot.instructions.md for syntax
+    local instruction_content="# ${title}
+
+${content}"
+
+    # Write to destination
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "$dest_file"
+    else
+        ensure_dir "$(dirname "$dest_file")"
+        echo "$instruction_content" > "$dest_file"
+        print_verbose "Created instruction: $dest_file"
+    fi
 }
 
 # -----------------------------------------------------------------------------
@@ -1168,6 +1218,7 @@ load_base_config() {
     BASE_USE_CLAUDE_CODE_SUBAGENTS=$(get_yaml_value "$BASE_DIR/config.yml" "use_claude_code_subagents" "true")
     BASE_AGENT_OS_COMMANDS=$(get_yaml_value "$BASE_DIR/config.yml" "agent_os_commands" "false")
     BASE_STANDARDS_AS_CLAUDE_CODE_SKILLS=$(get_yaml_value "$BASE_DIR/config.yml" "standards_as_claude_code_skills" "true")
+    BASE_STANDARDS_AS_COPILOT_INSTRUCTIONS=$(get_yaml_value "$BASE_DIR/config.yml" "standards_as_copilot_instructions" "false")
 
     # Check for old config flags to set variables for validation
     MULTI_AGENT_MODE=$(get_yaml_value "$BASE_DIR/config.yml" "multi_agent_mode" "")
@@ -1183,6 +1234,7 @@ load_project_config() {
     PROJECT_USE_CLAUDE_CODE_SUBAGENTS=$(get_project_config "$PROJECT_DIR" "use_claude_code_subagents")
     PROJECT_AGENT_OS_COMMANDS=$(get_project_config "$PROJECT_DIR" "agent_os_commands")
     PROJECT_STANDARDS_AS_CLAUDE_CODE_SKILLS=$(get_project_config "$PROJECT_DIR" "standards_as_claude_code_skills")
+    PROJECT_STANDARDS_AS_COPILOT_INSTRUCTIONS=$(get_project_config "$PROJECT_DIR" "standards_as_copilot_instructions")
 
     # Check for old config flags to set variables for validation
     MULTI_AGENT_MODE=$(get_project_config "$PROJECT_DIR" "multi_agent_mode")
@@ -1197,7 +1249,8 @@ validate_config() {
     local agent_os_commands=$3
     local standards_as_claude_code_skills=$4
     local profile=$5
-    local print_warnings=${6:-true}  # Default to true if not provided
+    local standards_as_copilot_instructions=$6
+    local print_warnings=${7:-true}  # Default to true if not provided
 
     # Validate at least one output is enabled
     if [[ "$claude_code_commands" != "true" ]] && [[ "$agent_os_commands" != "true" ]]; then
@@ -1238,6 +1291,7 @@ write_project_config() {
     local use_claude_code_subagents=$4
     local agent_os_commands=$5
     local standards_as_claude_code_skills=$6
+    local standards_as_copilot_instructions=$7
     local dest="$PROJECT_DIR/agent-os/config.yml"
 
     local config_content="version: $version
@@ -1252,7 +1306,8 @@ profile: $profile
 claude_code_commands: $claude_code_commands
 use_claude_code_subagents: $use_claude_code_subagents
 agent_os_commands: $agent_os_commands
-standards_as_claude_code_skills: $standards_as_claude_code_skills"
+standards_as_claude_code_skills: $standards_as_claude_code_skills
+standards_as_copilot_instructions: $standards_as_copilot_instructions"
 
     local result=$(write_file "$config_content" "$dest")
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -1445,6 +1500,54 @@ install_improve_skills_command() {
 
         if [[ "$DRY_RUN" == "true" ]]; then
             INSTALLED_FILES+=("$dest")
+        fi
+    fi
+}
+
+# Install GitHub Copilot instructions from standards files
+install_github_instructions() {
+    # Only install instructions if flag is enabled
+    if [[ "$EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS" != "true" ]]; then
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" != "true" ]]; then
+        print_status "Installing GitHub Copilot Instructions..."
+    fi
+
+    local instructions_count=0
+    local target_dir="$PROJECT_DIR/.github/instructions"
+
+    # Create target directory
+    ensure_dir "$target_dir"
+
+    # Get all standards files for the current profile
+    while read file; do
+        if [[ "$file" == standards/* ]] && [[ "$file" == *.md ]]; then
+            # Get source file path
+            local source=$(get_profile_file "$EFFECTIVE_PROFILE" "$file" "$BASE_DIR")
+            
+            if [[ -f "$source" ]]; then
+                # Convert standards path to instruction filename
+                # Example: standards/frontend/css.md -> frontend-css.md
+                local instruction_name=$(echo "$file" | sed 's|^standards/||' | sed 's|/|-|g')
+                local dest="$target_dir/$instruction_name"
+
+                # Compile instruction file
+                compile_instruction "$source" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE"
+
+                # Track the instruction file for dry run
+                if [[ "$DRY_RUN" == "true" ]]; then
+                    INSTALLED_FILES+=("$dest")
+                fi
+                ((instructions_count++)) || true
+            fi
+        fi
+    done < <(get_profile_files "$EFFECTIVE_PROFILE" "$BASE_DIR" "standards")
+
+    if [[ "$DRY_RUN" != "true" ]]; then
+        if [[ $instructions_count -gt 0 ]]; then
+            echo "✓ Installed $instructions_count GitHub Copilot Instructions"
         fi
     fi
 }

@@ -22,6 +22,41 @@ Docs, installation, usage, & best practices 👉 [It's all here](https://builder
 
 ---
 
+### Configuration Options
+
+#### GitHub Copilot Instructions
+
+Agent OS can install your coding standards as [GitHub Copilot instructions](https://docs.github.com/en/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot), making them available to GitHub Copilot when you code.
+
+Enable this feature during installation:
+
+```bash
+./scripts/project-install.sh --standards-as-copilot-instructions=true
+```
+
+Or configure it in your `agent-os/config.yml`:
+
+```yaml
+standards_as_copilot_instructions: true
+```
+
+When enabled, Agent OS will:
+- Create instruction files in `.github/instructions/` directory
+- Convert each standards file into a properly formatted Copilot instruction
+- Name files using the pattern: `standards/frontend/css.md` → `frontend-css.md`
+
+**When to use Copilot Instructions:**
+- You want GitHub Copilot to reference your standards during coding
+- You prefer having standards available to Copilot without manual prompting
+- You're using GitHub Copilot as your primary AI coding assistant
+
+**Relationship with Claude Code Skills:**
+- GitHub Copilot instructions (`standards_as_copilot_instructions`) and Claude Code Skills (`standards_as_claude_code_skills`) are independent features
+- They can be enabled simultaneously or separately
+- Choose based on which AI coding tools you primarily use
+
+---
+
 ### Follow updates & releases
 
 Read the [changelog](CHANGELOG.md)

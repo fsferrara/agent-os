@@ -177,10 +177,11 @@ load_configurations() {
     EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS="${USE_CLAUDE_CODE_SUBAGENTS:-$BASE_USE_CLAUDE_CODE_SUBAGENTS}"
     EFFECTIVE_AGENT_OS_COMMANDS="${AGENT_OS_COMMANDS:-$BASE_AGENT_OS_COMMANDS}"
     EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS="${STANDARDS_AS_CLAUDE_CODE_SKILLS:-$BASE_STANDARDS_AS_CLAUDE_CODE_SKILLS}"
+    EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS="${STANDARDS_AS_COPILOT_INSTRUCTIONS:-$BASE_STANDARDS_AS_COPILOT_INSTRUCTIONS}"
     EFFECTIVE_VERSION="$BASE_VERSION"
 
     # Validate config but suppress warnings (will show after user confirms update)
-    validate_config "$EFFECTIVE_CLAUDE_CODE_COMMANDS" "$EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS" "$EFFECTIVE_AGENT_OS_COMMANDS" "$EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS" "$EFFECTIVE_PROFILE" "false"
+    validate_config "$EFFECTIVE_CLAUDE_CODE_COMMANDS" "$EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS" "$EFFECTIVE_AGENT_OS_COMMANDS" "$EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS" "$EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS" "$EFFECTIVE_PROFILE" "false"
 
     print_verbose "Base configuration:"
     print_verbose "  Version: $BASE_VERSION"
@@ -189,6 +190,7 @@ load_configurations() {
     print_verbose "  Use Claude Code subagents: $BASE_USE_CLAUDE_CODE_SUBAGENTS"
     print_verbose "  Agent OS commands: $BASE_AGENT_OS_COMMANDS"
     print_verbose "  Standards as Claude Code Skills: $BASE_STANDARDS_AS_CLAUDE_CODE_SKILLS"
+    print_verbose "  Standards as Copilot Instructions: $BASE_STANDARDS_AS_COPILOT_INSTRUCTIONS"
 
     print_verbose "Project configuration:"
     print_verbose "  Version: $PROJECT_VERSION"
@@ -197,6 +199,7 @@ load_configurations() {
     print_verbose "  Use Claude Code subagents: $PROJECT_USE_CLAUDE_CODE_SUBAGENTS"
     print_verbose "  Agent OS commands: $PROJECT_AGENT_OS_COMMANDS"
     print_verbose "  Standards as Claude Code Skills: $PROJECT_STANDARDS_AS_CLAUDE_CODE_SKILLS"
+    print_verbose "  Standards as Copilot Instructions: $PROJECT_STANDARDS_AS_COPILOT_INSTRUCTIONS"
 
     print_verbose "Effective configuration:"
     print_verbose "  Profile: $EFFECTIVE_PROFILE"
@@ -204,6 +207,7 @@ load_configurations() {
     print_verbose "  Use Claude Code subagents: $EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS"
     print_verbose "  Agent OS commands: $EFFECTIVE_AGENT_OS_COMMANDS"
     print_verbose "  Standards as Claude Code Skills: $EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS"
+    print_verbose "  Standards as Copilot Instructions: $EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS"
 }
 
 # -----------------------------------------------------------------------------
@@ -270,6 +274,87 @@ update_standards() {
         fi
         if [[ $standards_skipped -gt 0 ]]; then
             echo -e "${YELLOW}$standards_skipped files in agent-os/standards were not updated and overwritten. To update and overwrite these, re-run with --overwrite-standards flag.${NC}"
+        fi
+    fi
+}
+
+# Update GitHub Copilot instructions
+update_github_instructions() {
+    # If flag is disabled but directory exists, offer cleanup
+    if [[ "$EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS" != "true" ]]; then
+        if [[ -d "$PROJECT_DIR/.github/instructions" ]]; then
+            print_verbose "GitHub Copilot instructions disabled but directory exists"
+            
+            # In interactive mode, ask user if they want to clean up
+            if [[ "$DRY_RUN" != "true" ]] && [[ -t 0 ]]; then
+                echo ""
+                echo -e "${YELLOW}GitHub Copilot instructions are disabled, but the .github/instructions/ directory exists.${NC}"
+                echo -n "Would you like to remove the .github/instructions/ directory? [y/N]: "
+                read -r response
+                
+                if [[ "$response" =~ ^[Yy]$ ]]; then
+                    rm -rf "$PROJECT_DIR/.github/instructions"
+                    echo -e "${GREEN}✓ Removed .github/instructions/ directory${NC}"
+                else
+                    echo -e "${YELLOW}⚠ Keeping .github/instructions/ directory (it will not be updated)${NC}"
+                fi
+            else
+                print_verbose "Skipping cleanup (non-interactive mode or dry-run)"
+            fi
+        fi
+        return 0
+    fi
+
+    print_status "Updating GitHub Copilot Instructions"
+
+    local instructions_updated=0
+    local instructions_skipped=0
+    local instructions_new=0
+    local target_dir="$PROJECT_DIR/.github/instructions"
+
+    # Create target directory if it doesn't exist
+    ensure_dir "$target_dir"
+
+    while read file; do
+        if [[ "$file" == standards/* ]] && [[ "$file" == *.md ]]; then
+            local source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
+            
+            if [[ -f "$source" ]]; then
+                # Convert standards path to instruction filename
+                local instruction_name=$(echo "$file" | sed 's|^standards/||' | sed 's|/|-|g')
+                local dest="$target_dir/$instruction_name"
+
+                if should_skip_file "$dest" "$OVERWRITE_ALL" "$OVERWRITE_STANDARDS" "instruction"; then
+                    SKIPPED_FILES+=("$dest")
+                    ((instructions_skipped++)) || true
+                    print_verbose "Skipped: $dest"
+                else
+                    if [[ -f "$dest" ]]; then
+                        UPDATED_FILES+=("$dest")
+                        ((instructions_updated++)) || true
+                        print_verbose "Updated: $dest"
+                    else
+                        NEW_FILES+=("$dest")
+                        ((instructions_new++)) || true
+                        print_verbose "New file: $dest"
+                    fi
+                    if [[ "$DRY_RUN" != "true" ]]; then
+                        compile_instruction "$source" "$dest" "$BASE_DIR" "$PROJECT_PROFILE"
+                    fi
+                fi
+            fi
+        fi
+    done < <(get_profile_files "$PROJECT_PROFILE" "$BASE_DIR" "standards")
+
+    if [[ "$DRY_RUN" != "true" ]]; then
+        if [[ $instructions_new -gt 0 ]]; then
+            echo "✓ Added $instructions_new GitHub Copilot Instructions"
+        fi
+        if [[ $instructions_updated -gt 0 ]]; then
+            echo "✓ Updated $instructions_updated GitHub Copilot Instructions"
+        fi
+        if [[ $instructions_skipped -gt 0 ]]; then
+            echo -e "${YELLOW}$instructions_skipped GitHub Copilot instructions were not updated and overwritten. To update and overwrite these, re-run with --overwrite-standards flag.${NC}"
         fi
     fi
 }
@@ -561,7 +646,8 @@ update_agent_os_folder() {
     # Update the configuration file
     write_project_config "$EFFECTIVE_VERSION" "$PROJECT_PROFILE" \
         "$PROJECT_CLAUDE_CODE_COMMANDS" "$PROJECT_USE_CLAUDE_CODE_SUBAGENTS" \
-        "$PROJECT_AGENT_OS_COMMANDS" "$PROJECT_STANDARDS_AS_CLAUDE_CODE_SKILLS"
+        "$PROJECT_AGENT_OS_COMMANDS" "$PROJECT_STANDARDS_AS_CLAUDE_CODE_SKILLS" \
+        "$PROJECT_STANDARDS_AS_COPILOT_INSTRUCTIONS"
 
     if [[ "$DRY_RUN" != "true" ]]; then
         echo "✓ Updated agent-os folder"
@@ -587,6 +673,10 @@ perform_update() {
 
     # Update components based on enabled flags
     update_standards
+    echo ""
+
+    # Update GitHub Copilot instructions if enabled
+    update_github_instructions
     echo ""
 
     # Update Claude Code files if enabled

@@ -26,6 +26,7 @@ CLAUDE_CODE_COMMANDS=""
 USE_CLAUDE_CODE_SUBAGENTS=""
 AGENT_OS_COMMANDS=""
 STANDARDS_AS_CLAUDE_CODE_SKILLS=""
+STANDARDS_AS_COPILOT_INSTRUCTIONS=""
 RE_INSTALL="false"
 OVERWRITE_ALL="false"
 OVERWRITE_STANDARDS="false"
@@ -44,19 +45,20 @@ Usage: $0 [OPTIONS]
 Install Agent OS into the current project directory.
 
 Options:
-    --profile PROFILE                        Use specified profile (default: from config.yml)
-    --claude-code-commands [BOOL]            Install Claude Code commands (default: from config.yml)
-    --use-claude-code-subagents [BOOL]       Use Claude Code subagents (default: from config.yml)
-    --agent-os-commands [BOOL]               Install agent-os commands (default: from config.yml)
-    --standards-as-claude-code-skills [BOOL] Use Claude Code Skills for standards (default: from config.yml)
-    --re-install                             Delete and reinstall Agent OS
-    --overwrite-all                          Overwrite all existing files during update
-    --overwrite-standards                    Overwrite existing standards during update
-    --overwrite-commands                     Overwrite existing commands during update
-    --overwrite-agents                       Overwrite existing agents during update
-    --dry-run                                Show what would be done without doing it
-    --verbose                                Show detailed output
-    -h, --help                               Show this help message
+    --profile PROFILE                             Use specified profile (default: from config.yml)
+    --claude-code-commands [BOOL]                 Install Claude Code commands (default: from config.yml)
+    --use-claude-code-subagents [BOOL]            Use Claude Code subagents (default: from config.yml)
+    --agent-os-commands [BOOL]                    Install agent-os commands (default: from config.yml)
+    --standards-as-claude-code-skills [BOOL]      Use Claude Code Skills for standards (default: from config.yml)
+    --standards-as-copilot-instructions [BOOL]    Install standards as GitHub Copilot instructions (default: from config.yml)
+    --re-install                                  Delete and reinstall Agent OS
+    --overwrite-all                               Overwrite all existing files during update
+    --overwrite-standards                         Overwrite existing standards during update
+    --overwrite-commands                          Overwrite existing commands during update
+    --overwrite-agents                            Overwrite existing agents during update
+    --dry-run                                     Show what would be done without doing it
+    --verbose                                     Show detailed output
+    -h, --help                                    Show this help message
 
 Note: Flags accept both hyphens and underscores (e.g., --use-claude-code-subagents or --use_claude_code_subagents)
 
@@ -98,6 +100,10 @@ parse_arguments() {
                 ;;
             --standards-as-claude-code-skills)
                 read STANDARDS_AS_CLAUDE_CODE_SKILLS shift_count <<< "$(parse_bool_flag "$STANDARDS_AS_CLAUDE_CODE_SKILLS" "$2")"
+                shift $shift_count
+                ;;
+            --standards-as-copilot-instructions)
+                read STANDARDS_AS_COPILOT_INSTRUCTIONS shift_count <<< "$(parse_bool_flag "$STANDARDS_AS_COPILOT_INSTRUCTIONS" "$2")"
                 shift $shift_count
                 ;;
             --re-install)
@@ -153,10 +159,11 @@ load_configuration() {
     EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS="${USE_CLAUDE_CODE_SUBAGENTS:-$BASE_USE_CLAUDE_CODE_SUBAGENTS}"
     EFFECTIVE_AGENT_OS_COMMANDS="${AGENT_OS_COMMANDS:-$BASE_AGENT_OS_COMMANDS}"
     EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS="${STANDARDS_AS_CLAUDE_CODE_SKILLS:-$BASE_STANDARDS_AS_CLAUDE_CODE_SKILLS}"
+    EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS="${STANDARDS_AS_COPILOT_INSTRUCTIONS:-$BASE_STANDARDS_AS_COPILOT_INSTRUCTIONS}"
     EFFECTIVE_VERSION="$BASE_VERSION"
 
     # Validate configuration using common function (may override EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS if dependency not met)
-    validate_config "$EFFECTIVE_CLAUDE_CODE_COMMANDS" "$EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS" "$EFFECTIVE_AGENT_OS_COMMANDS" "$EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS" "$EFFECTIVE_PROFILE"
+    validate_config "$EFFECTIVE_CLAUDE_CODE_COMMANDS" "$EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS" "$EFFECTIVE_AGENT_OS_COMMANDS" "$EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS" "$EFFECTIVE_PROFILE" "$EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS"
 
     print_verbose "Configuration loaded:"
     print_verbose "  Profile: $EFFECTIVE_PROFILE"
@@ -164,6 +171,7 @@ load_configuration() {
     print_verbose "  Use Claude Code subagents: $EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS"
     print_verbose "  Agent OS commands: $EFFECTIVE_AGENT_OS_COMMANDS"
     print_verbose "  Standards as Claude Code Skills: $EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS"
+    print_verbose "  Standards as Copilot Instructions: $EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS"
 }
 
 # -----------------------------------------------------------------------------
@@ -375,7 +383,8 @@ create_agent_os_folder() {
     # Create the configuration file
     local config_file=$(write_project_config "$EFFECTIVE_VERSION" "$EFFECTIVE_PROFILE" \
         "$EFFECTIVE_CLAUDE_CODE_COMMANDS" "$EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS" \
-        "$EFFECTIVE_AGENT_OS_COMMANDS" "$EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS")
+        "$EFFECTIVE_AGENT_OS_COMMANDS" "$EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS" \
+        "$EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS")
     if [[ "$DRY_RUN" == "true" && -n "$config_file" ]]; then
         INSTALLED_FILES+=("$config_file")
     fi
@@ -401,6 +410,7 @@ perform_installation() {
     echo -e "  Claude Code commands: ${YELLOW}$EFFECTIVE_CLAUDE_CODE_COMMANDS${NC}"
     echo -e "  Use Claude Code subagents: ${YELLOW}$EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS${NC}"
     echo -e "  Standards as Claude Code Skills: ${YELLOW}$EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS${NC}"
+    echo -e "  Standards as Copilot Instructions: ${YELLOW}$EFFECTIVE_STANDARDS_AS_COPILOT_INSTRUCTIONS${NC}"
     echo -e "  Agent OS commands: ${YELLOW}$EFFECTIVE_AGENT_OS_COMMANDS${NC}"
     echo ""
 
@@ -421,6 +431,9 @@ perform_installation() {
             install_claude_code_skills
             install_improve_skills_command
         fi
+
+        # Install GitHub Copilot instructions if enabled
+        install_github_instructions
 
         # Install agent-os commands if enabled
         if [[ "$EFFECTIVE_AGENT_OS_COMMANDS" == "true" ]]; then
@@ -457,6 +470,10 @@ perform_installation() {
             install_improve_skills_command
             echo ""
         fi
+
+        # Install GitHub Copilot instructions if enabled
+        install_github_instructions
+        echo ""
 
         # Install agent-os commands if enabled
         if [[ "$EFFECTIVE_AGENT_OS_COMMANDS" == "true" ]]; then

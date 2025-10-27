@@ -3,6 +3,44 @@
 Get notified of major releases by subscribing here:
 https://buildermethods.com/agent-os
 
+## [2.2.0] - TBD
+
+### GitHub Copilot Instructions Support
+
+Added support for installing coding standards as [GitHub Copilot instructions](https://docs.github.com/en/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot).
+
+**New Configuration Flag:**
+- `standards_as_copilot_instructions: false` (default) - Enable to install standards as GitHub Copilot instructions
+
+**What's New:**
+- New `--standards-as-copilot-instructions` command-line flag for installation and update scripts
+- Automatic conversion of standards files to GitHub Copilot instruction format
+- Instructions are installed in `.github/instructions/` directory
+- File naming convention: `standards/frontend/css.md` → `frontend-css.md`
+- Cleanup prompt when flag is disabled to optionally remove instruction files
+- This feature is independent of `standards_as_claude_code_skills` - both can be enabled simultaneously
+
+**When to Use:**
+- You want GitHub Copilot to reference your coding standards during development
+- You prefer having standards available to Copilot without manual prompting
+- You're using GitHub Copilot as a primary AI coding assistant alongside or instead of Claude Code
+
+**Example Usage:**
+```bash
+# Enable during installation
+./scripts/project-install.sh --standards-as-copilot-instructions=true
+
+# Enable in config
+echo "standards_as_copilot_instructions: true" >> agent-os/config.yml
+
+# Update existing installation
+./scripts/project-update.sh
+```
+
+This is a non-breaking, additive feature. Existing installations continue to work without changes.
+
+---
+
 ## [2.1.0] - 2025-10-21
 
 Version 2.1 implemented a round of significant changes to how things work in Agent OS.  Here is a summary of what's new in version 2.1.0:
