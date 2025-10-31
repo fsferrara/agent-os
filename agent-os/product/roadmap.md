@@ -20,9 +20,9 @@
 
 10. [x] Profile System — Create reusable profile configurations (agents, commands, standards, workflows) that can be shared across projects and customized per team `M`
 
-11. [ ] GitHub Copilot Integration — Replace Claude Code-specific functionality with GitHub Copilot compatibility, including chat participants, slash commands, and agent orchestration `L`
+11. [ ] GitHub Copilot Integration — Install standards as copilot instructions `S`
 
-12. [ ] Workflow Automation — Build automated workflows that trigger spec creation, task breakdown, and verification based on project milestones and roadmap progress `XL`
+12. [ ] GitHub Copilot Integration — Install commands as copilot prompts `M`
 
 > Notes
 > - Items 1-10 represent the current implemented state of Agent OS
